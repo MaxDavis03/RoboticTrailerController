@@ -1,5 +1,5 @@
 import numpy as np
-import time
+import time, math
 
 from base_classes import Robot, Sim
 
@@ -243,10 +243,10 @@ def trailer_controller(path, lookahead, robot, speed, dt=0.05):
     HITCH_JACKKNIFE = np.deg2rad(65)
 
     # Timeout-based fixup trigger thresholds
-    HEADING_ERR_THRESHOLD = 0.08    # local_y (m) — significant lateral error
-    DIST_ERR_THRESHOLD    = 0.30    # m — control point close to path
-    OMEGA_SAT_FRACTION    = 0.85    # fraction of max_omega to count as "saturated"
-    FRUSTRATION_TIMEOUT   = 1.0     # seconds to persist before fixup fires
+    HEADING_ERR_THRESHOLD = 0.1    # local_y (m) — significant lateral error
+    DIST_ERR_THRESHOLD    = 0.60    # m — control point close to path
+    OMEGA_SAT_FRACTION    = 0.80    # fraction of max_omega to count as "saturated"
+    FRUSTRATION_TIMEOUT   = 0.2     # seconds to persist before fixup fires
 
     # Post-fixup cooldown (s) before frustration timer can build again
     FIXUP_POST_COOLDOWN   = 1.5
@@ -396,7 +396,7 @@ def main():
     x0, y0 = path[0]
     robot = Robot(
         mode="sim",
-        x0=x0, y0=y0, theta0=0.0,
+        x0=x0, y0=y0, theta0=math.pi,
         has_trailer=True,
         trailer_length=0.1,
     )
@@ -404,7 +404,7 @@ def main():
     sim = Sim([robot], bounds=[[0, 0], [2, 2]], path=path)
 
     dt    = 0.05
-    speed = 0.2   # positive = forward, negative = reverse
+    speed = -0.2   # positive = forward, negative = reverse
 
     while True:
         robot.update(dt=dt)

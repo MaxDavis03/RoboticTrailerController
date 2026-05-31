@@ -18,6 +18,8 @@ def trailer_path_planner(mode="figure8"):
         "vertical" — Straight vertical line
         "circle"   — Constant curvature, good for steady-state testing
         "square"   — Piecewise square loop
+        "demo"     — Recording path: wobble up, sharp corner, wobble right
+        "arc"      — Smooth S-curve from bottom-left to top-right
     """
     if mode == "figure8":
         t = np.linspace(0, 2 * np.pi, 400)
@@ -40,6 +42,91 @@ def trailer_path_planner(mode="figure8"):
         x = 1.0 + 0.4 * np.cos(t)
         y = 1.0 + 0.4 * np.sin(t)
         return list(zip(x, y))
+
+    elif mode == "demo":
+        """
+        Demo recording path — designed for a robot starting at bottom-left
+        facing into the corner (theta0 = -3*pi/4, i.e. southwest):
+
+          Phase 1: Wobble upward along the left side of the arena.
+                   Sinusoidal lateral wobble in X shows trailer tracking.
+
+          Phase 2: Sharp 90-degree elbow at the top-left. The tight radius
+                   is intentionally aggressive to trigger the fixup mechanic.
+
+          Phase 3: Wobble rightward across the top of the arena.
+                   Sinusoidal lateral wobble in Y mirrors Phase 1.
+        """
+        def wobble_segment(p1, p2, n, amp, perp):
+            """
+            Linearly interpolate p1→p2 with sinusoidal wobble of amplitude
+            `amp` added in the perpendicular direction `perp`.
+            Uses 2.5 cycles so the segment neither starts nor ends flat,
+            giving a natural, organic-looking oscillation.
+            """
+            pts = []
+            for i, t in enumerate(np.linspace(0, 1, n)):
+                base = p1 + t * (p2 - p1)
+                wave = amp * np.sin(i / n * 2 * np.pi * 2.5)
+                pts.append(tuple(base + wave * perp))
+            return pts
+
+        path = []
+
+        # Key waypoints
+        start      = np.array([0.30, 0.30])   # bottom-left
+        top_left   = np.array([0.30, 1.55])   # top of vertical run
+        elbow_tip  = np.array([0.38, 1.68])   # apex of the sharp corner
+        elbow_exit = np.array([0.55, 1.68])   # exit heading into horizontal run
+        end        = np.array([1.70, 1.68])   # bottom-right of horizontal run
+
+        # ── Phase 1: wobble upward ──────────────────────────────────────
+        # Perpendicular to upward travel is the X axis.
+        path += wobble_segment(start, top_left, 200, 0.06, np.array([1.0, 0.0]))
+
+        # ── Phase 2: sharp elbow at top-left ────────────────────────────
+        # Two straight segments meeting at a tight apex — intentionally
+        # aggressive so the fixup mechanic has to intervene.
+        for t in np.linspace(0, 1, 25):
+            path.append(tuple((1 - t) * top_left + t * elbow_tip))
+        for t in np.linspace(0, 1, 25):
+            path.append(tuple((1 - t) * elbow_tip + t * elbow_exit))
+
+        # ── Phase 3: wobble rightward ────────────────────────────────────
+        # Perpendicular to rightward travel is the Y axis.
+        path += wobble_segment(elbow_exit, end, 200, 0.06, np.array([0.0, 1.0]))
+
+        return path
+
+    elif mode == "arc":
+        """
+        Smooth S-curve from bottom-left (0.30, 0.30) to top-right (1.70, 1.70).
+        Same start position and theta0 as "demo".
+
+        Built as a cubic Bezier so the entry and exit tangents are controlled:
+          - Entry tangent: northeast (matches a robot reversing SW → trailer
+            leads NE up the path)
+          - Exit tangent: northeast, symmetric
+
+        The two interior control points are offset to create a gentle S-shape
+        rather than a straight diagonal, giving the trailer something
+        interesting to track without any sharp corners.
+        """
+        p0 = np.array([0.30, 0.30])   # start — bottom-left
+        p1 = np.array([0.30, 1.10])   # pull upward first (S upper lobe)
+        p2 = np.array([1.70, 0.90])   # pull rightward (S lower lobe)
+        p3 = np.array([1.70, 1.70])   # end — top-right
+
+        n = 400
+        path = []
+        for t in np.linspace(0, 1, n):
+            u = 1 - t
+            pt = (u**3 * p0
+                  + 3 * u**2 * t * p1
+                  + 3 * u * t**2 * p2
+                  + t**3 * p3)
+            path.append(tuple(pt))
+        return path
 
     elif mode == "square":
         path = []
@@ -391,20 +478,38 @@ def trailer_controller(path, lookahead, robot, speed, dt=0.05):
 # ==========================================================
 
 def main():
-    path = trailer_path_planner(mode="figure8")  # try: "line", "circle", "square"
+    path = trailer_path_planner(mode="arc")
+
+    dt    = 0.05
+    speed = -0.2   # negative = reverse (trailer leads)
 
     x0, y0 = path[0]
+    x1, y1 = path[1]
+
+    # Align robot to the first path segment.
+    # In reverse the robot drives backward (trailer leads), so theta
+    # points opposite the path direction — robot faces away from path[1].
+    path_heading = math.atan2(y1 - y0, x1 - x0)
+    theta0 = path_heading + (math.pi if speed < 0 else 0.0)
+
+    trailer_length = 0.1
+
+    if speed < 0:
+        # Control point is the trailer, which sits trailer_length behind
+        # the robot center. Offset the robot forward so the trailer starts
+        # exactly on path[0], eliminating initial tracking error.
+        x0 = x0 + trailer_length * math.cos(theta0)
+        y0 = y0 + trailer_length * math.sin(theta0)
+
     robot = Robot(
         mode="sim",
-        x0=x0, y0=y0, theta0=math.pi,
+        x0=x0, y0=y0,
+        theta0=theta0,
         has_trailer=True,
-        trailer_length=0.1,
+        trailer_length=trailer_length,
     )
 
     sim = Sim([robot], bounds=[[0, 0], [2, 2]], path=path)
-
-    dt    = 0.05
-    speed = -0.2   # positive = forward, negative = reverse
 
     while True:
         robot.update(dt=dt)

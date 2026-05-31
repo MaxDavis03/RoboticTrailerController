@@ -18,8 +18,9 @@ def trailer_path_planner(mode="figure8"):
         "vertical" — Straight vertical line
         "circle"   — Constant curvature, good for steady-state testing
         "square"   — Piecewise square loop
-        "demo"     — Recording path: wobble up, sharp corner, wobble right
+        "demo"     — Recording path: slalom + loop-de-loop fixup demo
         "arc"      — Smooth S-curve from bottom-left to top-right
+        "hairpin"  — Straight run in, tight loop (r=0.08) to force fixup, exit right
     """
     if mode == "figure8":
         t = np.linspace(0, 2 * np.pi, 400)
@@ -45,56 +46,53 @@ def trailer_path_planner(mode="figure8"):
 
     elif mode == "demo":
         """
-        Demo recording path — designed for a robot starting at bottom-left
-        facing into the corner (theta0 = -3*pi/4, i.e. southwest):
+        Demo recording path:
 
-          Phase 1: Wobble upward along the left side of the arena.
-                   Sinusoidal lateral wobble in X shows trailer tracking.
+          Phase 1: Broad sinusoidal slalom up the left side of the arena.
+                   Enough curvature to keep hitch angle visibly active
+                   (mid-range) throughout, without stressing the controller.
 
-          Phase 2: Sharp 90-degree elbow at the top-left. The tight radius
-                   is intentionally aggressive to trigger the fixup mechanic.
+          Phase 2: Tight loop-de-loop. The path winds into a small circle
+                   (r=0.10) — the required heading change rate far exceeds
+                   what the controller can achieve in reverse, so the hitch
+                   angle slams into the jackknife limit and fixup fires.
+                   The loop is placed mid-arena so it's clearly visible.
 
-          Phase 3: Wobble rightward across the top of the arena.
-                   Sinusoidal lateral wobble in Y mirrors Phase 1.
+          Phase 3: Straight run rightward to exit cleanly after recovery.
         """
-        def wobble_segment(p1, p2, n, amp, perp):
-            """
-            Linearly interpolate p1→p2 with sinusoidal wobble of amplitude
-            `amp` added in the perpendicular direction `perp`.
-            Uses 2.5 cycles so the segment neither starts nor ends flat,
-            giving a natural, organic-looking oscillation.
-            """
-            pts = []
-            for i, t in enumerate(np.linspace(0, 1, n)):
-                base = p1 + t * (p2 - p1)
-                wave = amp * np.sin(i / n * 2 * np.pi * 2.5)
-                pts.append(tuple(base + wave * perp))
-            return pts
-
         path = []
 
-        # Key waypoints
-        start      = np.array([0.30, 0.30])   # bottom-left
-        top_left   = np.array([0.30, 1.55])   # top of vertical run
-        elbow_tip  = np.array([0.38, 1.68])   # apex of the sharp corner
-        elbow_exit = np.array([0.55, 1.68])   # exit heading into horizontal run
-        end        = np.array([1.70, 1.68])   # bottom-right of horizontal run
+        # ── Phase 1: slalom upward ───────────────────────────────────────
+        # Single broad sine wave: sweeps left-right as it climbs, keeping
+        # hitch angle oscillating visibly in the mid range (~15-30 deg).
+        n1 = 250
+        for i, t in enumerate(np.linspace(0, 1, n1)):
+            x = 0.55 + 0.22 * np.sin(t * 2 * np.pi * 1.5)
+            y = 0.25 + t * 1.10   # climb from 0.25 to 1.35
+            path.append((x, y))
 
-        # ── Phase 1: wobble upward ──────────────────────────────────────
-        # Perpendicular to upward travel is the X axis.
-        path += wobble_segment(start, top_left, 200, 0.06, np.array([1.0, 0.0]))
+        # ── Phase 2: loop-de-loop ────────────────────────────────────────
+        # Full circle of radius 0.10 centred at (0.55, 1.45).
+        # Going clockwise (π → -π) so the trailer must follow a sustained
+        # left-hand curl. After roughly 60-90° the hitch hits jackknife
+        # threshold and fixup fires. Post-fixup the robot re-enters and
+        # the loop repeats until it finally escapes — this makes fixup
+        # visually obvious and repeatable for the recording.
+        loop_cx, loop_cy = 0.55, 1.47
+        loop_r = 0.10
+        n2 = 100
+        for t in np.linspace(np.pi / 2, np.pi / 2 - 2 * np.pi, n2):
+            x = loop_cx + loop_r * np.cos(t)
+            y = loop_cy + loop_r * np.sin(t)
+            path.append((x, y))
 
-        # ── Phase 2: sharp elbow at top-left ────────────────────────────
-        # Two straight segments meeting at a tight apex — intentionally
-        # aggressive so the fixup mechanic has to intervene.
-        for t in np.linspace(0, 1, 25):
-            path.append(tuple((1 - t) * top_left + t * elbow_tip))
-        for t in np.linspace(0, 1, 25):
-            path.append(tuple((1 - t) * elbow_tip + t * elbow_exit))
-
-        # ── Phase 3: wobble rightward ────────────────────────────────────
-        # Perpendicular to rightward travel is the Y axis.
-        path += wobble_segment(elbow_exit, end, 200, 0.06, np.array([0.0, 1.0]))
+        # ── Phase 3: exit rightward ──────────────────────────────────────
+        loop_exit = np.array([loop_cx, loop_cy + loop_r])  # top of loop
+        end = np.array([1.70, loop_cy + loop_r])
+        n3 = 150
+        for t in np.linspace(0, 1, n3):
+            pt = (1 - t) * loop_exit + t * end
+            path.append(tuple(pt))
 
         return path
 
@@ -126,6 +124,59 @@ def trailer_path_planner(mode="figure8"):
                   + 3 * u * t**2 * p2
                   + t**3 * p3)
             path.append(tuple(pt))
+        return path
+
+    elif mode == "hairpin":
+        """
+        Straight diagonal run in, then a tangent-continuous clockwise loop
+        (r=0.12) that the trailer physically cannot follow — fixup guaranteed.
+
+          Phase 1: Straight climb from bottom-left to loop entry. Shows
+                   clean stable reverse tracking before anything stressful.
+
+          Phase 2: Full 360° CW loop, r=0.12, tangent-continuous with the
+                   approach. sin(phi_des) = L/r = 0.1/0.12 = 0.83 → phi_des
+                   ~56°, already near jackknife. The lookahead will see the
+                   loop curving away and demand even higher phi, hitting the
+                   65° jackknife limit within the first quarter turn.
+
+          Phase 3: Straight exit continuing northeast, then rightward to end.
+        """
+        path = []
+
+        start      = np.array([0.30, 0.30])
+        loop_entry = np.array([0.85, 1.10])
+        loop_r     = 0.12
+
+        # Centre is 90° RIGHT of approach heading (CW loop)
+        approach_heading = np.arctan2(
+            loop_entry[1] - start[1], loop_entry[0] - start[0]
+        )  # ~55.5°
+        right_heading = approach_heading - np.pi / 2
+        loop_cx = loop_entry[0] + loop_r * np.cos(right_heading)
+        loop_cy = loop_entry[1] + loop_r * np.sin(right_heading)
+
+        entry_angle = np.arctan2(loop_entry[1] - loop_cy, loop_entry[0] - loop_cx)
+
+        # ── Phase 1: straight approach ───────────────────────────────────
+        for t in np.linspace(0, 1, 220):
+            path.append(tuple((1 - t) * start + t * loop_entry))
+
+        # ── Phase 2: tangent-continuous CW loop ──────────────────────────
+        # Sweep clockwise (decreasing angle) a full 360° back to entry.
+        for t in np.linspace(entry_angle, entry_angle - 2 * np.pi, 140):
+            x = loop_cx + loop_r * np.cos(t)
+            y = loop_cy + loop_r * np.sin(t)
+            path.append((x, y))
+
+        # ── Phase 3: exit — continue approach heading briefly, then right ─
+        exit_pt = np.array([1.20, 1.10])
+        end     = np.array([1.70, 1.10])
+        for t in np.linspace(0, 1, 120):
+            path.append(tuple((1 - t) * loop_entry + t * exit_pt))
+        for t in np.linspace(0, 1, 100):
+            path.append(tuple((1 - t) * exit_pt + t * end))
+
         return path
 
     elif mode == "square":
@@ -316,13 +367,13 @@ def trailer_controller(path, lookahead, robot, speed, dt=0.05):
     L = robot.trailer_length
 
     # Forward gains (trailer-aware blend)
-    k_fwd_path  = 2.5
-    k_fwd_phi   = 2.0
-    k_fwd_damp  = 0.8
+    k_fwd_path  = 1.8
+    k_fwd_phi   = 1.5
+    k_fwd_damp  = 1.2
 
     # Reverse gains (cascaded hitch controller)
-    k_rev_phi   = 4.5
-    k_rev_damp  = 1.5
+    k_rev_phi   = 2.5
+    k_rev_damp  = 2.5
 
     max_omega   = 3.0   # rad/s — also used as saturation reference
 
@@ -330,7 +381,7 @@ def trailer_controller(path, lookahead, robot, speed, dt=0.05):
     HITCH_JACKKNIFE = np.deg2rad(65)
 
     # Timeout-based fixup trigger thresholds
-    HEADING_ERR_THRESHOLD = 0.1    # local_y (m) — significant lateral error
+    HEADING_ERR_THRESHOLD = 0.15   # local_y (m) — significant lateral error
     DIST_ERR_THRESHOLD    = 0.60    # m — control point close to path
     OMEGA_SAT_FRACTION    = 0.80    # fraction of max_omega to count as "saturated"
     FRUSTRATION_TIMEOUT   = 0.2     # seconds to persist before fixup fires
@@ -478,7 +529,7 @@ def trailer_controller(path, lookahead, robot, speed, dt=0.05):
 # ==========================================================
 
 def main():
-    path = trailer_path_planner(mode="arc")
+    path = trailer_path_planner(mode="figure8")
 
     dt    = 0.05
     speed = -0.2   # negative = reverse (trailer leads)
@@ -514,7 +565,7 @@ def main():
     while True:
         robot.update(dt=dt)
 
-        v, w = trailer_controller(path, lookahead=0.15, robot=robot, speed=speed, dt=dt)
+        v, w = trailer_controller(path, lookahead=0.25, robot=robot, speed=speed, dt=dt)
         robot.set_velocity(v, w)
 
         sim.update()

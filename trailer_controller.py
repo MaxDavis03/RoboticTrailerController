@@ -188,6 +188,30 @@ def trailer_path_planner(mode="figure8"):
             for t in np.linspace(0, 1, 80):
                 path.append(tuple(p1 + t * (p2 - p1)))
         return path
+    
+    elif mode == "triangle":
+        """
+        Sharp equilateral-ish triangle. No corner smoothing — the hard
+        heading discontinuities at each vertex are the point. The controller
+        will saturate at each corner, the frustration timer fills, and fixup
+        fires. Good for demonstrating jackknife recovery three times per loop.
+
+        Vertices:
+            A = (0.35, 0.35)  bottom-left
+            B = (1.65, 0.35)  bottom-right
+            C = (1.00, 1.65)  top-centre
+        """
+        A = np.array([0.35, 0.35])
+        B = np.array([1.65, 0.35])
+        C = np.array([1.00, 1.65])
+
+        N_SIDE = 150
+        path = []
+        for p1, p2 in [(A, B), (B, C), (C, A)]:
+            for k in range(N_SIDE):
+                t = k / N_SIDE
+                path.append(tuple((1 - t) * p1 + t * p2))
+        return path
 
     else:
         raise ValueError(f"Unknown path mode: {mode!r}")
@@ -529,7 +553,7 @@ def trailer_controller(path, lookahead, robot, speed, dt=0.05):
 # ==========================================================
 
 def main():
-    path = trailer_path_planner(mode="figure8")
+    path = trailer_path_planner(mode="triangle")
 
     dt    = 0.05
     speed = -0.2   # negative = reverse (trailer leads)
@@ -565,7 +589,7 @@ def main():
     while True:
         robot.update(dt=dt)
 
-        v, w = trailer_controller(path, lookahead=0.25, robot=robot, speed=speed, dt=dt)
+        v, w = trailer_controller(path, lookahead=0.1, robot=robot, speed=speed, dt=dt)
         robot.set_velocity(v, w)
 
         sim.update()

@@ -4,10 +4,10 @@
 #
 # FORMAT KEY
 #   [TIMESTAMP]  — approximate clock position
-#   [SCREEN]     — what is displayed on screen
+#   [SCREEN]     — what is displayed on screen at that moment
 #   [CUT TO]     — hard cut to new visual
 #   [OVERLAY]    — text/graphic that appears on top of current footage
-#   (narration)  — spoken words, spoken at measured pace ~2.2 words/sec
+#   narration    — spoken words at ~130 WPM, measured pace
 # ==========================================================================
 
 
@@ -16,38 +16,36 @@
 # ==========================================================================
 
 [TIMESTAMP: 0:00]
-[SCREEN: Clean title card — white background, black text]
-[OVERLAY: "Autonomous Reverse Trailer Control" | "EGB439 Self-Assigned Project" | "Max Davis — n11256931"]
+[SCREEN: Title card — white background, centred black text]
+[OVERLAY: "Autonomous Reverse Trailer Control"
+          "EGB439 Self-Assigned Project — Max Davis | n11256931"]
 
   "This project investigates one of the most practically relevant
    yet underexplored problems in mobile robotics — autonomously
    reversing a robot with a passive trailer payload."
 
-[TIMESTAMP: 0:07]
-[CUT TO: Real-world footage or image — truck reversing a trailer, or forklift with tow attachment]
-[OVERLAY: small text bottom-left — "Motivation: autonomous logistics, agricultural robotics, warehouse tug systems"]
+[TIMESTAMP: 0:08]
+[CUT TO: Image collage — autonomous tractor towing implement | warehouse tug robot | articulated freight vehicle]
+[OVERLAY: small caption — "Motivation: agricultural robotics, warehouse automation, autonomous freight"]
 
-  "Reversing a trailer is something most people find difficult.
-   For a robot, it's even harder — because the trailer introduces
-   a passive articulated joint that makes the system nonlinear
-   and inherently unstable in reverse."
+  "Reversing a trailer is difficult for a human driver.
+   For a robot it is harder still — because the trailer
+   introduces a passive articulated joint that makes the
+   system nonlinear and inherently unstable in reverse."
 
 [TIMESTAMP: 0:18]
-[CUT TO: Simulator running — figure-8 or hairpin path, robot and trailer clearly visible]
-[OVERLAY: Large centred text — research question, fades in over 1 second]
+[CUT TO: Simulator — figure-8 path, robot and trailer clearly visible, telemetry panel on right]
+[OVERLAY: large centred text fades in]
+  "Research question:
+   How effectively can a pure-pursuit controller be extended
+   as a trailer-aware controller to autonomously reverse a
+   differential-drive robot with a passive trailer through
+   a constrained environment?"
 
-  "The research question is:
-   How effectively can a pure-pursuit vehicle controller be extended
-   as a trailer-aware controller, to autonomously reverse a
-   differential-drive robot with a passive trailer through a
-   constrained environment?"
-
-[TIMESTAMP: 0:28]
-[OVERLAY: smaller text under RQ — "Objective: develop a controller + path planner for stable reverse trailer operation"]
-
-  "The project objective was to build a complete system — simulation,
-   controller, and path planner — capable of reversing a trailer
-   through obstacle fields while maintaining stability."
+[TIMESTAMP: 0:27]
+[OVERLAY: smaller text below RQ]
+  "Objective: develop a simulation, controller and path planner
+   capable of stable reverse trailer operation."
 
 
 # ==========================================================================
@@ -55,95 +53,89 @@
 # ==========================================================================
 
 [TIMESTAMP: 0:30]
-[CUT TO: Split-screen collage — autonomous tractor in crop row | warehouse AMR towing shelves | autonomous truck]
-[OVERLAY: "Real-world relevance"]
+[CUT TO: Block diagram — course topics mapped to project components]
+[OVERLAY: boxes connecting:
+  "Localisation → robot pose estimate"
+  "Path planning → A* + spline trajectory"
+  "Feedback control → cascaded hitch stabilisation"
+  "State estimation → trailer articulation angle"]
 
-  "Articulated vehicle systems appear across a wide range of
-   autonomous robotics domains."
+  "This project directly integrates the core topics from
+   EGB439 — feedback control, state estimation, kinodynamic
+   path planning, and localisation — but applies them to an
+   articulated multi-body system rather than a single vehicle."
 
-[TIMESTAMP: 0:35]
-[OVERLAY: Bullet points appear one at a time as narrated]
-  — "Autonomous agricultural equipment towing implements through crop rows"
-  — "Warehouse tug robots hauling shelf-trolley payloads"
-  — "Last-mile freight vehicles reversing into loading docks"
-  — "Robotic trailer-parking assist systems"
+[TIMESTAMP: 0:42]
+[OVERLAY: bullet list appears one line at a time]
+  "Articulated systems appear across many real-world domains:"
+  — "Agricultural equipment towing implements"
+  — "Warehouse tug robots hauling shelf trolleys"
+  — "Autonomous freight reversing into docks"
+  — "Robotic trailer-parking assist"
 
-  "All of these share the same fundamental challenge: the payload
-   has its own heading, its own dynamics, and it cannot be directly
+  "All share the same fundamental challenge: the payload has
+   its own heading, its own dynamics, and cannot be directly
    actuated."
-
-[TIMESTAMP: 0:48]
-[CUT TO: Block diagram — showing course topics connected to project components]
-[OVERLAY: Diagram showing: "Localisation → robot pose" | "Path planning → trajectory" | "Feedback control → hitch stabilisation" | "State estimation → trailer angle"]
-
-  "This project directly integrates the advanced robotics topics
-   covered this semester — feedback control, state estimation,
-   kinodynamic path planning, and localisation — but applies
-   them to an articulated multi-body system rather than a
-   single rigid vehicle."
-
-  "That extension is non-trivial. It requires new kinematic models,
-   a new control architecture, and planning strategies that account
-   for reversing stability constraints."
 
 
 # ==========================================================================
-# SECTION 3 — BACKGROUND RESEARCH & LIT REVIEW   [1:00 – 2:00]
+# SECTION 3 — BACKGROUND RESEARCH   [1:00 – 2:00]
 # ==========================================================================
 
 [TIMESTAMP: 1:00]
-[CUT TO: Screen showing a PDF or paper — Coulter 1992 Pure Pursuit]
-[OVERLAY: Citation — "Coulter, R.C. (1992). Implementation of the Pure Pursuit Path Tracking Algorithm. CMU-RI-TR-92-01"]
+[SCREEN: PDF of Coulter 1992 — cursor highlights title and abstract]
+[OVERLAY: citation box — "Coulter, R.C. (1992). Implementation of the Pure Pursuit
+           Path Tracking Algorithm. CMU-RI-TR-92-01"]
 
   "The starting point was pure pursuit — a geometric path-tracking
-   method developed at CMU in 1992. The algorithm defines a lookahead
-   circle around the vehicle's control point, finds where that circle
-   intersects the path, and steers toward that intersection."
+   method developed at Carnegie Mellon in 1992.
+   A lookahead circle is drawn around the vehicle's control point;
+   the algorithm steers toward the circle's intersection with the path."
 
 [TIMESTAMP: 1:12]
-[SCREEN: Diagram showing pure pursuit geometry — vehicle, lookahead circle, target point, curvature arc]
-[OVERLAY: Equation — κ = 2y / L_d² labelled "pure pursuit curvature"]
+[CUT TO: Diagram — vehicle, lookahead circle, target point, curvature arc labelled]
+[OVERLAY: equation   κ = 2y / L_d²   labelled "pure pursuit curvature"]
 
-  "Curvature kappa equals two times the lateral offset divided by
-   the lookahead distance squared. This is simple and fast,
-   but it was designed for a single rigid vehicle — not an
-   articulated system."
+  "Curvature kappa equals two times the lateral offset divided
+   by the lookahead distance squared.
+   Simple, fast, and effective — but designed for a single rigid body."
 
 [TIMESTAMP: 1:22]
-[CUT TO: Screen showing paper — Altafini (2001) or similar trailer kinematics paper]
-[OVERLAY: Citation — "Altafini, C. (2001). Some properties of the general n-trailer system. IFAC Proceedings."]
+[CUT TO: Screen showing Altafini 2001 paper or equivalent trailer kinematics reference]
+[OVERLAY: citation — "Altafini, C. (2001). Some properties of the general
+           n-trailer system. IFAC Proceedings Volumes."]
 
-  "Research into articulated vehicle kinematics shows that the
-   trailer introduces a second heading state — the trailer angle —
-   governed by this differential equation."
+  "Research into articulated vehicle kinematics shows the trailer
+   introduces a second heading state governed by this equation."
 
 [TIMESTAMP: 1:30]
-[SCREEN: Equation displayed — θ̇_t = (v/L) · sin(θ_r - θ_t)]
-[OVERLAY: Labels — "trailer heading rate" | "speed at hitch" | "trailer length" | "hitch angle φ"]
+[SCREEN: Equation — θ̇_t = (v / L) · sin(θ_r − θ_t)]
+[OVERLAY: labels — "trailer heading rate" | "hitch velocity / trailer length" | "hitch angle φ"]
 
-  "The trailer heading rate equals the hitch-point velocity divided
-   by the trailer length, times the sine of the hitch angle.
-   In forward motion this is self-stabilising. In reverse, the
-   sign flips and it becomes exponentially unstable without active
-   hitch-angle feedback."
+  "The trailer heading rate equals the hitch velocity divided by
+   trailer length, times the sine of the hitch angle.
+   In forward motion this is self-stabilising.
+   In reverse, the sign of the velocity flips the stability —
+   the system becomes exponentially unstable without active feedback."
 
 [TIMESTAMP: 1:42]
-[CUT TO: Screen showing paper — Sauerbeck / Bolzern et al. or similar cascaded trailer controller paper]
-[OVERLAY: Citation — "Bolzern, P., DeSantis, R., Locatelli, A. (1998). Path-tracking for articulated vehicles. IEEE T-CST."]
+[CUT TO: Screen showing Bolzern et al. 1998 or equivalent cascaded controller paper]
+[OVERLAY: citation — "Bolzern, P., DeSantis, R., Locatelli, A. (1998).
+           Path-tracking for articulated vehicles with off-axle hitching.
+           IEEE Transactions on Control Systems Technology."]
 
-  "Literature on cascaded trailer controllers shows that the
-   correct architecture has two loops: an outer loop that converts
-   path curvature into a desired hitch angle, and an inner loop
-   that stabilises that hitch angle by controlling robot yaw rate."
+  "Literature on cascaded trailer controllers establishes the correct
+   architecture: an outer loop that converts path curvature into a
+   desired hitch angle, and an inner loop that stabilises that hitch
+   angle via robot yaw rate."
 
 [TIMESTAMP: 1:52]
-[CUT TO: Screen showing Garrido-Jurado et al. ArUco paper or OpenCV ArUco docs]
-[OVERLAY: Citation — "Garrido-Jurado et al. (2014). Automatic generation of fiducial markers. Pattern Recognition Letters."]
+[CUT TO: Simple block diagram of the two-loop architecture]
+[OVERLAY: "Path → κ → sin(φ_des) = L·κ → PD(φ_des − φ) → ω → robot → trailer φ → feedback"]
 
-  "For hitch angle measurement on the physical robot, this project
-   used ArUco fiducial markers and a rear-facing camera to estimate
-   trailer articulation in real time — an approach validated in the
-   robotics literature for low-cost pose estimation."
+  "This cascaded structure — planning the trailer state rather than
+   directly commanding robot heading — is the core contribution
+   that makes stable reverse tracking possible."
 
 
 # ==========================================================================
@@ -151,58 +143,54 @@
 # ==========================================================================
 
 [TIMESTAMP: 2:00]
-[CUT TO: Simulator — forward motion, clean tracking, trailer following smoothly]
-[OVERLAY: "Experiment 1: Forward trailer dynamics" | "Mode: FORWARD" shown in telemetry]
+[CUT TO: Simulator — Experiment 1 running: figure-8, speed +0.2, telemetry shows FORWARD mode]
+[OVERLAY: "Experiment 1: Forward Trailer Dynamics"
+          "figure-8 path | speed +0.20 m/s | hitch controller active"]
 
-  "The first experiment validated the trailer kinematic model in
-   forward motion. A correctly modelled trailer should passively
-   follow the robot with no active control — and with the correct
-   hitch-velocity formulation, it does."
+  "The first experiment validated the trailer kinematic simulation
+   in forward motion.
+   A correctly modelled trailer should passively follow the robot
+   with no special control — and it does.
+   This establishes the simulation as a reliable test environment."
 
-[TIMESTAMP: 2:10]
-[CUT TO: Simulator — reverse motion WITHOUT hitch control, trailer jackknifing immediately]
-[OVERLAY: "Experiment 2: Reverse without hitch stabilisation — UNSTABLE"]
+[TIMESTAMP: 2:14]
+[CUT TO: Simulator — Experiment 3 first: arc path, NO hitch control, trailer jackknifes within ~5 s]
+[OVERLAY: "Experiment 3: Reverse WITHOUT Hitch Stabilisation — UNSTABLE"
+          large red text — "JACKKNIFE"]
 
   "Reversing without hitch-angle feedback immediately destabilises.
-   The trailer folds rapidly into a jackknife. This confirmed
-   the literature finding and justified the need for active control."
+   The trailer folds into a jackknife within seconds.
+   This directly confirms the literature finding — active hitch
+   control is not optional, it is necessary."
 
-[TIMESTAMP: 2:20]
-[CUT TO: Simulator — reverse with hitch controller active, smooth tracking on a gentle curve]
-[OVERLAY: "Experiment 3: Cascaded hitch-angle controller" | telemetry shows hitch angle oscillating stably ~15-30°]
+[TIMESTAMP: 2:26]
+[CUT TO: Simulator — Experiment 2: arc path, speed -0.2, hitch controller active, clean tracking]
+[OVERLAY: "Experiment 2: Controlled Reverse — Cascaded Hitch Controller"
+          telemetry visible: hitch ±15-35°, phi_des tracking phi_actual]
 
-  "Adding the cascaded hitch controller — outer loop curvature
-   to desired hitch angle, inner loop PD on hitch error —
-   produced stable reversing on gentle curves, with the hitch
-   angle remaining well within bounds."
+  "With the cascaded controller active, the same path is tracked
+   stably in reverse.
+   The inner PD loop holds the hitch angle close to its desired
+   value throughout the manoeuvre."
 
-[TIMESTAMP: 2:33]
-[CUT TO: Simulator — hairpin or demo path, frustration bar filling, fixup triggering, robot repositioning forward then resuming reverse]
-[OVERLAY: "Experiment 4: Fixup maneuver system" | frustration bar highlighted | "FIXUP" mode shown]
+[TIMESTAMP: 2:38]
+[CUT TO: Telemetry panel close-up — show phi_des, phi_err, hitch angle live values]
+[OVERLAY: arrows labelling phi_des, phi_err, hitch, curvature]
 
-  "For tight corners where the required hitch angle exceeds what the
-   controller can achieve, a fixup state machine was implemented.
-   It triggers only when the controller has been saturated at maximum
-   steering effort for a sustained period near the path — confirming
-   a genuine geometric deadlock rather than a transient."
+  "The telemetry panel shows the controller's internal state in
+   real time — the desired hitch angle, the tracking error,
+   and the raw path curvature demand.
+   This makes the two-loop architecture directly observable."
 
-[TIMESTAMP: 2:47]
-[CUT TO: Real robot footage — if available — robot reversing with trailer, or ArUco hitch estimation camera view]
-[OVERLAY: "Experiment 5: Vision-based hitch angle estimation" | ArUco detection overlay visible on camera feed]
+[TIMESTAMP: 2:50]
+[CUT TO: Simulator — Experiment 4: obstacle field, planned path visible, robot reversing through gaps]
+[OVERLAY: "Experiment 4: A* Path Planning Through Obstacle Field"
+          "Grid-based A* + cubic spline | 7 circular obstacles | speed -0.20 m/s"]
 
-  "On the physical platform, hitch angle was estimated using ArUco
-   markers on the trailer, detected by a rear-facing camera. This
-   provided real-time articulation state without additional mechanical
-   sensors."
-
-[TIMESTAMP: 2:55]
-[CUT TO: Quick montage — path planner generating a path through an obstacle field (or show code/plot if hardware not available)]
-[OVERLAY: "Experiment 6: Path planning through constrained environments"]
-
-  "Finally, path planning was extended to generate reversing
-   trajectories through constrained obstacle environments,
-   considering minimum turning radius, maximum hitch angle,
-   and recovery maneuver feasibility."
+  "The final experiment shows the complete system.
+   A grid-based A* planner computes a collision-free path through
+   an obstacle field, smoothed with a cubic spline.
+   The hitch controller then tracks this planned path in reverse."
 
 
 # ==========================================================================
@@ -210,58 +198,52 @@
 # ==========================================================================
 
 [TIMESTAMP: 3:00]
-[CUT TO: Simulator — forward tracking, telemetry panel visible, hitch angle low and stable]
-[OVERLAY: "Result: Forward motion — stable, low tracking error"]
+[CUT TO: Split screen or quick-cut sequence — Exp 3 jackknife LEFT | Exp 2 stable tracking RIGHT]
+[OVERLAY: "Without hitch control" left | "With cascaded hitch controller" right]
 
-  "Forward trailer motion was naturally stable and easy to control.
-   The trailer passively aligned with the robot heading within
-   one to two body lengths, consistent with the kinematic model."
+  "The central result is clear.
+   Without hitch-angle feedback, the system jackknifes
+   within a few seconds on any curved path.
+   With it, sustained reverse operation is achievable
+   even on paths with moderate curvature."
 
-[TIMESTAMP: 3:10]
-[CUT TO: Simulator — reverse on figure-8 or arc path, hitch angle oscillating in mid-range, tracking correctly]
-[OVERLAY: Telemetry showing φ_des tracking φ_actual | "REVERSE" mode | hitch ±20-35°]
+[TIMESTAMP: 3:14]
+[CUT TO: Simulator Exp 2 — telemetry, hitch oscillating in stable range, phi_err small]
+[OVERLAY: annotated — "hitch: ±25°" | "φ_err: <10°" | "controller: REVERSE mode"]
 
-  "With the cascaded controller active, reverse tracking was
-   significantly more stable. The inner loop kept hitch angle
-   close to the desired value, and the frustration trigger
-   prevented spurious fixups during normal operation."
+  "Quantitatively, the cascaded controller maintained the hitch angle
+   within plus or minus thirty degrees on the smooth arc path,
+   with tracking error below ten degrees throughout.
+   The outer loop curvature demand closely matched the inner loop output."
 
-[TIMESTAMP: 3:22]
-[CUT TO: Demo/hairpin path — fixup triggered, forward maneuver clearly visible, resumes reversing]
-[OVERLAY: "Result: Fixup maneuver successfully recovers from geometric deadlock" | frustration bar annotated]
+[TIMESTAMP: 3:26]
+[CUT TO: Experiment 4 — obstacle field, path clearly visible, robot weaving between obstacles]
+[OVERLAY: "Path planning: A* in 0.1 s | 400-point spline | collision margin: 120 mm"]
 
-  "The fixup system demonstrated reliable recovery from tight corners.
-   The three-condition trigger — large heading error, small distance
-   to path, and sustained saturation — prevented false positives
-   while ensuring recovery when genuinely needed."
+  "The A* planner found a feasible path in under two tenths of a
+   second, and the spline smoothing produced a path the hitch
+   controller could track without geometric deadlock."
 
-[TIMESTAMP: 3:34]
-[CUT TO: Real robot or ArUco video — hitch angle estimate plotted or shown numerically]
-[OVERLAY: "Result: Vision-based hitch estimation — accurate, real-time"]
+[TIMESTAMP: 3:38]
+[CUT TO: Telemetry frustration bar — show it partially filling at a tighter section]
+[OVERLAY: "Fixup maneuver system — a designed extension (not yet reliable in simulation)"
+          frustration bar annotated]
 
-  "ArUco-based hitch angle estimation tracked trailer articulation
-   in real time at camera frame rate. Accuracy was sufficient for
-   closed-loop hitch feedback, though sensitivity to lighting and
-   partial occlusion was noted."
-
-[TIMESTAMP: 3:44]
-[CUT TO: Telemetry panel in simulator — show frustration bar, mode switching, phi_des and phi_err]
-[OVERLAY: Annotated telemetry — arrows labelling each field]
-
-  "The telemetry system provided real insight into controller
-   behaviour — the frustration bar made the saturation timer
-   visible, and the phi_des versus phi_err readout directly
-   showed the inner-loop tracking quality."
+  "A fixup maneuver system was designed and partially implemented
+   as an extension. The concept: if the controller remains saturated
+   at maximum steering effort near the path for a sustained period,
+   this indicates a geometric deadlock — a forward repositioning
+   maneuver is triggered to unwind the hitch angle.
+   The frustration timer shown here tracks that saturation duration.
+   This remains an active area for further development."
 
 [TIMESTAMP: 3:52]
-[CUT TO: Side-by-side or sequence — naive reverse tracking failing vs cascaded controller succeeding on same path]
-[OVERLAY: "Naive reverse tracking" left | "Cascaded hitch controller" right]
+[CUT TO: Experiment 2 — end of path, clean tracking visible in trail]
+[OVERLAY: key result text]
 
-  "The key finding is that trailer-aware planning and control
-   substantially outperforms naive reverse path tracking.
-   Without hitch feedback, the system jackknifes within seconds.
-   With it, sustained reverse operation is achievable even
-   on paths with moderate curvature."
+  "The key result: trailer-aware cascaded control substantially
+   outperforms naive reverse path tracking, enabling stable
+   operation that would otherwise be impossible."
 
 
 # ==========================================================================
@@ -269,116 +251,119 @@
 # ==========================================================================
 
 [TIMESTAMP: 4:00]
-[CUT TO: Clean diagram — two-layer control architecture with labels]
-[OVERLAY: Block diagram — "Path" → "Curvature κ" → "Desired hitch φ_des" → "PD controller" → "Robot ω" → "Trailer θ_t" feedback loop]
+[CUT TO: Block diagram of full system architecture]
+[OVERLAY: diagram — Path → A* planner → spline → controller → Robot → Trailer
+                            ↑                         ↑
+                    obstacle map              hitch angle feedback]
 
   "The project demonstrated that classical mobile robotics
    techniques can be extended to articulated systems — but only
-   when the controller explicitly models the hitch-angle state
-   and closes a feedback loop around it."
+   when the controller explicitly closes a feedback loop
+   around the hitch-angle state."
 
-[TIMESTAMP: 4:12]
-[CUT TO: List of limitations appearing one by one]
-[OVERLAY: "Limitations identified:"]
-  — "Sensitivity to noisy hitch-angle estimates"
-  — "Lookahead distance is a fixed trade-off — short is reactive, long is smooth"
-  — "Fixup maneuver direction is geometric but not globally optimal"
-  — "Wheel slip and odometry drift affect the real robot"
-  — "No real-time obstacle avoidance once path is set"
+[TIMESTAMP: 4:10]
+[OVERLAY: "Limitations identified:" — bullet points appear one at a time]
+  — "Lookahead distance is a fixed trade-off: short is reactive, long is smooth"
+  — "Fixed gains do not adapt to path curvature or speed changes"
+  — "Fixup maneuver direction is geometrically motivated but not globally optimal"
+  — "Simulation assumes perfect state — real hardware adds slip, delay, noise"
+  — "A* plans in 2D position space — does not model trailer state constraints"
 
-  "Several limitations were identified. Hitch angle estimation
-   is noisy at large distances. The fixed lookahead distance is
-   a fundamental trade-off — tighter paths need shorter lookahead,
-   which amplifies noise. And the fixup maneuver direction, while
-   geometrically motivated, is not globally optimal."
+  "Several clear limitations emerged. The fixed lookahead distance
+   is a fundamental trade-off — tight paths need short lookahead,
+   which amplifies noise. And the path planner treats the robot
+   as a point, without modelling the trailer's turning constraints
+   during planning."
 
 [TIMESTAMP: 4:30]
-[CUT TO: Future work — show one or two example concepts visually]
-[OVERLAY: "Future directions:"]
-  — "Model Predictive Control for constrained multi-step planning"
-  — "Adaptive lookahead as a function of path curvature"
-  — "SLAM-integrated trailer tracking for real-world deployment"
-  — "Multi-trailer articulated systems"
+[OVERLAY: "Recommended extensions:" — list appears]
+  — "Adaptive lookahead: scale with local path curvature"
+  — "Reliable fixup maneuver: geometry-aware forward repositioning"
+  — "Articulation-aware planning: Hybrid A* with hitch-angle constraints"
+  — "Model Predictive Control: anticipate hitch limits multi-step ahead"
 
-  "Future work could address these limitations. Adaptive lookahead
-   based on local path curvature would eliminate the fixed trade-off.
-   Model predictive control would allow the planner to anticipate
-   hitch angle constraints before they become critical. And
-   SLAM integration would support real-world deployment where
-   localiser infrastructure is unavailable."
+  "Future work would focus first on adaptive lookahead — scaling the
+   lookahead radius as a function of local path curvature eliminates
+   the fixed trade-off entirely. A reliable fixup maneuver and
+   articulation-aware path planning using Hybrid A* would then
+   extend the system to genuinely constrained environments."
 
 [TIMESTAMP: 4:47]
-[CUT TO: Final simulator run — clean reverse tracking with telemetry visible, fixup triggering once, recovering cleanly]
-[OVERLAY: Title card returning — "Autonomous Reverse Trailer Control"]
+[CUT TO: Experiment 4 footage — full run, obstacle field, planned path, clean reverse tracking]
+[OVERLAY: returning title — "Autonomous Reverse Trailer Control"]
 
-  "In conclusion — reversing a trailer is a substantially harder
-   robotics problem than standard mobile robot navigation.
-   It requires new kinematic models, a new control architecture,
-   and planning strategies that account for physical instability."
+  "In conclusion — reversing a trailer is substantially harder than
+   standard mobile robot navigation. It requires new kinematic models,
+   a new control architecture, and planning strategies that account
+   for physical instability."
 
 [TIMESTAMP: 4:55]
-[OVERLAY: Final text block fades in over simulator footage]
+[OVERLAY: final text fades in over footage]
   "Articulated trailer systems CAN be autonomously controlled
    using advanced robotics techniques —
    but they demand substantially more sophisticated approaches
    than a conventional mobile robot."
 
 [TIMESTAMP: 5:00]
-[SCREEN: End card — QUT logo, unit code EGB439, name, student number]
+[SCREEN: End card — "EGB439 | Max Davis | n11256931" | QUT colours]
 
 
 # ==========================================================================
-# SCREEN CONTENT CHECKLIST (match to criteria)
+# CRITERIA CHECKLIST
 # ==========================================================================
 #
 # [CRITERIA 1 — Core question]
-#   ✓ Research question displayed as text overlay at 0:18
-#   ✓ Objective stated at 0:28
-#   ✓ Real-world motivation footage/images at 0:07
+#   ✓ Research question displayed as text at 0:18
+#   ✓ Objective stated at 0:27
+#   ✓ Real-world motivation images at 0:08
 #
 # [CRITERIA 2 — Depth of research]
-#   ✓ Coulter (1992) pure pursuit — citation + diagram + equation at 1:00–1:21
-#   ✓ Altafini (2001) trailer kinematics — citation + equation at 1:22–1:41
-#   ✓ Bolzern et al. (1998) cascaded controller — citation + architecture at 1:42–1:51
-#   ✓ Garrido-Jurado (2014) ArUco — citation + camera footage at 1:52–1:59
-#   ✓ All citations include author, year, title, venue
+#   ✓ Coulter 1992 — citation + diagram + κ equation at 1:00–1:21
+#   ✓ Altafini 2001 — citation + θ̇_t equation with labels at 1:22–1:41
+#   ✓ Bolzern 1998 — citation + cascaded architecture diagram at 1:42–1:59
+#   ✓ All citations: author, year, title, venue
+#   ✓ Equations explained in narration, not just displayed
 #
 # [CRITERIA 3 — Experimental rationale]
-#   ✓ Six distinct experiments with stated purpose and expected outcome
-#   ✓ Each experiment links back to a research finding or course concept
-#   ✓ "What": the experiment | "How": the setup/method | "Why": the insight
-#   ✓ Telemetry panel shown throughout to make internal state visible
+#   ✓ Exp 1: validates simulation model (what/how/why stated)
+#   ✓ Exp 3: demonstrates instability without control (justifies the work)
+#   ✓ Exp 2: shows cascaded controller working (main result)
+#   ✓ Exp 4: full system integration — planner + controller
+#   ✓ Telemetry panel shown and narrated — internal state visible
+#   ✓ Fixup described as designed extension, not claimed as working
 #
 # [CRITERIA 4 — Results & analysis]
-#   ✓ Quantitative telemetry shown (hitch angle values, phi_des vs phi_err)
-#   ✓ Comparative result (with vs without hitch control) at 3:52
-#   ✓ Limitations explicitly analysed at 4:12
+#   ✓ Direct comparison: with vs without hitch control at 3:00
+#   ✓ Quantitative values from telemetry narrated at 3:14
+#   ✓ Limitations list at 4:10 — specific and honest
 #   ✓ Findings tied back to research question in conclusion
-#   ✓ Video production quality: clean cuts, labelled overlays, annotated telemetry
+#   ✓ No overclaiming — fixup described accurately as "partially implemented"
+#   ✓ Video quality: labelled overlays, annotated telemetry, clean cuts
 
 
 # ==========================================================================
 # PRODUCTION NOTES
 # ==========================================================================
 #
-# RECORDING ORDER (suggested):
-#   1. Record all simulator footage first — multiple takes for each mode
-#   2. Record ArUco/real robot footage (even 10 seconds is sufficient)
-#   3. Screen-record paper PDFs with cursor highlighting key equations
-#   4. Narrate over assembled footage last — use a script reader at ~130 WPM
+# RECORDING ORDER:
+#   1. Run   python run_experiments.py   and screen-record all four experiments
+#   2. Screen-record the paper PDFs (Coulter, Altafini/equivalent, Bolzern)
+#      with cursor slowly highlighting title + key equation
+#   3. Create the block diagram slides (PowerPoint or Keynote is fine)
+#   4. Record narration last, reading from this script
 #
-# SIMULATOR FOOTAGE NEEDED:
-#   - forward tracking (figure8 or arc, clean, ~20 sec)
-#   - reverse WITHOUT hitch control (jackknife within 5 sec — easy to get)
-#   - reverse WITH control, gentle path, hitch in mid-range (figure8, ~30 sec)
-#   - demo/hairpin with fixup triggering — slow the video here if needed
-#   - telemetry panel close-up showing frustration bar filling and firing
+# EXPERIMENT DURATIONS IN run_experiments.py:
+#   Exp 1 (forward)    25 s — record full run, use ~15 s in edit
+#   Exp 2 (controlled) 35 s — record full run, use ~20 s in edit
+#   Exp 3 (unstable)   15 s — jackknife happens fast, use all of it
+#   Exp 4 (obstacles)  60 s — use ~20 s showing full traversal
 #
-# PAPERS TO SHOW ON SCREEN (suggest having PDFs open):
-#   - Coulter 1992 (CMU tech report — freely available)
-#   - Any kinematic trailer paper (search "trailer kinematics reversing control")
-#   - Garrido-Jurado 2014 ArUco (accessible via Google Scholar)
+# WHAT TO SHOW FOR EXP 3 (UNSTABLE):
+#   The trailer jackknifes quickly — let it run a few seconds past jackknife
+#   before cutting so the viewer clearly sees the instability.
+#   You may need to slow the playback to 0.5× to make it obvious.
 #
-# TIMING BUFFER:
-#   This script runs approximately 4:58 at 130 WPM narration pace.
-#   Trim pauses in simulator footage to fit. Do not rush narration.
+# TIMING CHECK:
+#   Script runs ~4:56 at 130 WPM with normal pauses.
+#   The two largest timing risks are sections 3 (research) and 4 (experiments).
+#   If running long, trim the application list at 0:42 to two bullet points.

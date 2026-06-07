@@ -1,7 +1,19 @@
-import numpy as np
-import time, math
+"""
+trailer_controller.py
+=====================
+Path planner, lookahead helper, and cascaded trailer controller.
+No main() — import this from run_experiments.py or any other script.
 
-from base_classes import Robot, Sim
+Public API
+----------
+    trailer_path_planner(mode)          -> list of (x, y)
+    trailer_controller(path, lookahead,
+                       robot, speed,
+                       dt, limit_curvature)  -> (v, omega)
+"""
+
+import numpy as np
+import math
 
 
 # ==========================================================
@@ -12,205 +24,129 @@ def trailer_path_planner(mode="figure8"):
     """
     Generate a test path for the trailer.
 
-    Modes:
-        "figure8"  — Lissajous figure-8, good for testing cornering
-        "line"     — Straight horizontal line, good for stability testing
-        "vertical" — Straight vertical line
-        "circle"   — Constant curvature, good for steady-state testing
-        "square"   — Piecewise square loop
-        "demo"     — Recording path: slalom + loop-de-loop fixup demo
-        "arc"      — Smooth S-curve from bottom-left to top-right
-        "hairpin"  — Straight run in, tight loop (r=0.08) to force fixup, exit right
+    Modes
+    -----
+    "figure8"  — Lissajous figure-8
+    "line"     — Straight horizontal line
+    "vertical" — Straight vertical line
+    "circle"   — Constant-curvature loop
+    "square"   — Piecewise square loop
+    "triangle" — Sharp triangle with no corner smoothing (forces fixup x3/lap)
+    "arc"      — Smooth cubic-Bezier S-curve, bottom-left → top-right
+    "demo"     — Slalom climb + tight loop-de-loop
+    "hairpin"  — Straight approach + tangent-continuous CW loop
     """
+
     if mode == "figure8":
         t = np.linspace(0, 2 * np.pi, 400)
-        x = 1.0 + 0.5 * np.sin(t)
-        y = 1.0 + 0.35 * np.sin(2 * t)
-        return list(zip(x, y))
+        return list(zip(1.0 + 0.5 * np.sin(t),
+                        1.0 + 0.35 * np.sin(2 * t)))
 
     elif mode == "line":
         x = np.linspace(0.3, 1.7, 300)
-        y = np.ones_like(x) * 1.0
-        return list(zip(x, y))
+        return list(zip(x, np.ones_like(x) * 1.0))
 
     elif mode == "vertical":
         y = np.linspace(0.3, 1.7, 300)
-        x = np.ones_like(y) * 1.0
-        return list(zip(x, y))
+        return list(zip(np.ones_like(y) * 1.0, y))
 
     elif mode == "circle":
         t = np.linspace(0, 2 * np.pi, 400)
-        x = 1.0 + 0.4 * np.cos(t)
-        y = 1.0 + 0.4 * np.sin(t)
-        return list(zip(x, y))
+        return list(zip(1.0 + 0.4 * np.cos(t),
+                        1.0 + 0.4 * np.sin(t)))
 
-    elif mode == "demo":
-        """
-        Demo recording path:
-
-          Phase 1: Broad sinusoidal slalom up the left side of the arena.
-                   Enough curvature to keep hitch angle visibly active
-                   (mid-range) throughout, without stressing the controller.
-
-          Phase 2: Tight loop-de-loop. The path winds into a small circle
-                   (r=0.10) — the required heading change rate far exceeds
-                   what the controller can achieve in reverse, so the hitch
-                   angle slams into the jackknife limit and fixup fires.
-                   The loop is placed mid-arena so it's clearly visible.
-
-          Phase 3: Straight run rightward to exit cleanly after recovery.
-        """
-        path = []
-
-        # ── Phase 1: slalom upward ───────────────────────────────────────
-        # Single broad sine wave: sweeps left-right as it climbs, keeping
-        # hitch angle oscillating visibly in the mid range (~15-30 deg).
-        n1 = 250
-        for i, t in enumerate(np.linspace(0, 1, n1)):
-            x = 0.55 + 0.22 * np.sin(t * 2 * np.pi * 1.5)
-            y = 0.25 + t * 1.10   # climb from 0.25 to 1.35
-            path.append((x, y))
-
-        # ── Phase 2: loop-de-loop ────────────────────────────────────────
-        # Full circle of radius 0.10 centred at (0.55, 1.45).
-        # Going clockwise (π → -π) so the trailer must follow a sustained
-        # left-hand curl. After roughly 60-90° the hitch hits jackknife
-        # threshold and fixup fires. Post-fixup the robot re-enters and
-        # the loop repeats until it finally escapes — this makes fixup
-        # visually obvious and repeatable for the recording.
-        loop_cx, loop_cy = 0.55, 1.47
-        loop_r = 0.10
-        n2 = 100
-        for t in np.linspace(np.pi / 2, np.pi / 2 - 2 * np.pi, n2):
-            x = loop_cx + loop_r * np.cos(t)
-            y = loop_cy + loop_r * np.sin(t)
-            path.append((x, y))
-
-        # ── Phase 3: exit rightward ──────────────────────────────────────
-        loop_exit = np.array([loop_cx, loop_cy + loop_r])  # top of loop
-        end = np.array([1.70, loop_cy + loop_r])
-        n3 = 150
-        for t in np.linspace(0, 1, n3):
-            pt = (1 - t) * loop_exit + t * end
-            path.append(tuple(pt))
-
-        return path
-
-    elif mode == "arc":
-        """
-        Smooth S-curve from bottom-left (0.30, 0.30) to top-right (1.70, 1.70).
-        Same start position and theta0 as "demo".
-
-        Built as a cubic Bezier so the entry and exit tangents are controlled:
-          - Entry tangent: northeast (matches a robot reversing SW → trailer
-            leads NE up the path)
-          - Exit tangent: northeast, symmetric
-
-        The two interior control points are offset to create a gentle S-shape
-        rather than a straight diagonal, giving the trailer something
-        interesting to track without any sharp corners.
-        """
-        p0 = np.array([0.30, 0.30])   # start — bottom-left
-        p1 = np.array([0.30, 1.10])   # pull upward first (S upper lobe)
-        p2 = np.array([1.70, 0.90])   # pull rightward (S lower lobe)
-        p3 = np.array([1.70, 1.70])   # end — top-right
-
-        n = 400
-        path = []
-        for t in np.linspace(0, 1, n):
-            u = 1 - t
-            pt = (u**3 * p0
-                  + 3 * u**2 * t * p1
-                  + 3 * u * t**2 * p2
-                  + t**3 * p3)
-            path.append(tuple(pt))
-        return path
-
-    elif mode == "hairpin":
-        """
-        Straight diagonal run in, then a tangent-continuous clockwise loop
-        (r=0.12) that the trailer physically cannot follow — fixup guaranteed.
-
-          Phase 1: Straight climb from bottom-left to loop entry. Shows
-                   clean stable reverse tracking before anything stressful.
-
-          Phase 2: Full 360° CW loop, r=0.12, tangent-continuous with the
-                   approach. sin(phi_des) = L/r = 0.1/0.12 = 0.83 → phi_des
-                   ~56°, already near jackknife. The lookahead will see the
-                   loop curving away and demand even higher phi, hitting the
-                   65° jackknife limit within the first quarter turn.
-
-          Phase 3: Straight exit continuing northeast, then rightward to end.
-        """
-        path = []
-
-        start      = np.array([0.30, 0.30])
-        loop_entry = np.array([0.85, 1.10])
-        loop_r     = 0.12
-
-        # Centre is 90° RIGHT of approach heading (CW loop)
-        approach_heading = np.arctan2(
-            loop_entry[1] - start[1], loop_entry[0] - start[0]
-        )  # ~55.5°
-        right_heading = approach_heading - np.pi / 2
-        loop_cx = loop_entry[0] + loop_r * np.cos(right_heading)
-        loop_cy = loop_entry[1] + loop_r * np.sin(right_heading)
-
-        entry_angle = np.arctan2(loop_entry[1] - loop_cy, loop_entry[0] - loop_cx)
-
-        # ── Phase 1: straight approach ───────────────────────────────────
-        for t in np.linspace(0, 1, 220):
-            path.append(tuple((1 - t) * start + t * loop_entry))
-
-        # ── Phase 2: tangent-continuous CW loop ──────────────────────────
-        # Sweep clockwise (decreasing angle) a full 360° back to entry.
-        for t in np.linspace(entry_angle, entry_angle - 2 * np.pi, 140):
-            x = loop_cx + loop_r * np.cos(t)
-            y = loop_cy + loop_r * np.sin(t)
-            path.append((x, y))
-
-        # ── Phase 3: exit — continue approach heading briefly, then right ─
-        exit_pt = np.array([1.20, 1.10])
-        end     = np.array([1.70, 1.10])
-        for t in np.linspace(0, 1, 120):
-            path.append(tuple((1 - t) * loop_entry + t * exit_pt))
-        for t in np.linspace(0, 1, 100):
-            path.append(tuple((1 - t) * exit_pt + t * end))
-
-        return path
-
-    elif mode == "square":
-        path = []
-        corners = [(0.4, 0.4), (1.6, 0.4), (1.6, 1.6), (0.4, 1.6)]
-        for i in range(len(corners)):
-            p1 = np.array(corners[i])
-            p2 = np.array(corners[(i + 1) % len(corners)])
-            for t in np.linspace(0, 1, 80):
-                path.append(tuple(p1 + t * (p2 - p1)))
-        return path
-    
     elif mode == "triangle":
         """
-        Sharp equilateral-ish triangle. No corner smoothing — the hard
-        heading discontinuities at each vertex are the point. The controller
-        will saturate at each corner, the frustration timer fills, and fixup
-        fires. Good for demonstrating jackknife recovery three times per loop.
-
-        Vertices:
-            A = (0.35, 0.35)  bottom-left
-            B = (1.65, 0.35)  bottom-right
-            C = (1.00, 1.65)  top-centre
+        Sharp equilateral-ish triangle — no corner smoothing.
+        The hard heading discontinuity at each vertex forces the
+        controller to saturate, demonstrating the fixup trigger.
+        Vertices: A=(0.35,0.35) B=(1.65,0.35) C=(1.00,1.65)
         """
         A = np.array([0.35, 0.35])
         B = np.array([1.65, 0.35])
         C = np.array([1.00, 1.65])
-
-        N_SIDE = 150
         path = []
         for p1, p2 in [(A, B), (B, C), (C, A)]:
-            for k in range(N_SIDE):
-                t = k / N_SIDE
+            for k in range(150):
+                t = k / 150
                 path.append(tuple((1 - t) * p1 + t * p2))
+        return path
+
+    elif mode == "arc":
+        """
+        Cubic Bezier S-curve from (0.30, 0.30) to (1.70, 1.70).
+        Smooth curvature — good for stable-tracking demonstration.
+        """
+        p0 = np.array([0.30, 0.30])
+        p1 = np.array([0.30, 1.10])
+        p2 = np.array([1.70, 0.90])
+        p3 = np.array([1.70, 1.70])
+        path = []
+        for t in np.linspace(0, 1, 400):
+            u = 1 - t
+            pt = (u**3*p0 + 3*u**2*t*p1 + 3*u*t**2*p2 + t**3*p3)
+            path.append(tuple(pt))
+        return path
+
+    elif mode == "demo":
+        """
+        Phase 1: broad slalom upward (hitch angle visibly active mid-range).
+        Phase 2: tight loop-de-loop (forces fixup).
+        Phase 3: straight exit rightward.
+        """
+        path = []
+        for t in np.linspace(0, 1, 250):
+            path.append((0.55 + 0.22 * np.sin(t * 2 * np.pi * 1.5),
+                         0.25 + t * 1.10))
+
+        loop_cx, loop_cy, loop_r = 0.55, 1.47, 0.10
+        for t in np.linspace(np.pi/2, np.pi/2 - 2*np.pi, 100):
+            path.append((loop_cx + loop_r*np.cos(t),
+                         loop_cy + loop_r*np.sin(t)))
+
+        loop_exit = np.array([loop_cx, loop_cy + loop_r])
+        for t in np.linspace(0, 1, 150):
+            path.append(tuple((1-t)*loop_exit + t*np.array([1.70, loop_cy+loop_r])))
+        return path
+
+    elif mode == "hairpin":
+        """
+        Straight diagonal approach, then a tangent-continuous CW loop
+        (r=0.12) — the required hitch angle exceeds 65° almost immediately,
+        so the jackknife fixup triggers within the first quarter-turn.
+        """
+        path = []
+        start      = np.array([0.30, 0.30])
+        loop_entry = np.array([0.85, 1.10])
+        loop_r     = 0.12
+
+        ah  = np.arctan2(loop_entry[1]-start[1], loop_entry[0]-start[0])
+        rh  = ah - np.pi/2
+        lcx = loop_entry[0] + loop_r * np.cos(rh)
+        lcy = loop_entry[1] + loop_r * np.sin(rh)
+        ea  = np.arctan2(loop_entry[1]-lcy, loop_entry[0]-lcx)
+
+        for t in np.linspace(0, 1, 220):
+            path.append(tuple((1-t)*start + t*loop_entry))
+        for t in np.linspace(ea, ea - 2*np.pi, 140):
+            path.append((lcx + loop_r*np.cos(t), lcy + loop_r*np.sin(t)))
+
+        exit_pt = np.array([1.20, 1.10])
+        end     = np.array([1.70, 1.10])
+        for t in np.linspace(0, 1, 120):
+            path.append(tuple((1-t)*loop_entry + t*exit_pt))
+        for t in np.linspace(0, 1, 100):
+            path.append(tuple((1-t)*exit_pt + t*end))
+        return path
+
+    elif mode == "square":
+        path = []
+        corners = [(0.4,0.4),(1.6,0.4),(1.6,1.6),(0.4,1.6)]
+        for i in range(len(corners)):
+            p1 = np.array(corners[i])
+            p2 = np.array(corners[(i+1) % len(corners)])
+            for k in range(80):
+                path.append(tuple(p1 + (k/80)*(p2-p1)))
         return path
 
     else:
@@ -218,38 +154,36 @@ def trailer_path_planner(mode="figure8"):
 
 
 # ==========================================================
-# HELPER: LOOKAHEAD POINT
+# LOOKAHEAD
 # ==========================================================
 
 def _find_lookahead(path, cx, cy, lookahead, path_index):
     """
-    Circle-crossing lookahead: find where the lookahead circle first
-    crosses the path, searching forward from path_index.
-    Wraps around for looping paths.
+    Index-ahead lookahead: find the closest path point within a
+    forward search window, then step N_AHEAD indices forward.
 
-    Returns (target_point, new_path_index).
+    Uses index stepping rather than circle-crossing interpolation so
+    that sharp corners cause an immediate heading-target change —
+    important for the frustration trigger to fire at corners.
     """
-    n = len(path)
+    N_AHEAD = 12
+    n       = len(path)
+    pos     = np.array([cx, cy])
 
-    for offset in range(n):
+    best_idx  = path_index
+    best_dist = np.linalg.norm(np.array(path[path_index]) - pos)
+
+    for offset in range(1, min(n, 60)):
         i = (path_index + offset) % n
-        j = (i + 1) % n
+        d = np.linalg.norm(np.array(path[i]) - pos)
+        if d < best_dist:
+            best_dist = d
+            best_idx  = i
+        elif d > best_dist + 0.10:
+            break
 
-        p1  = np.array(path[i])
-        p2  = np.array(path[j])
-        pos = np.array([cx, cy])
-
-        d1 = np.linalg.norm(p1 - pos)
-        d2 = np.linalg.norm(p2 - pos)
-
-        if d1 < lookahead and d2 >= lookahead:
-            ratio  = (lookahead - d1) / (d2 - d1 + 1e-9)
-            target = tuple(p1 + ratio * (p2 - p1))
-            return target, i
-
-    # fallback: just step ahead
-    idx = (path_index + 5) % n
-    return path[idx], idx
+    target_idx = (best_idx + N_AHEAD) % n
+    return path[target_idx], best_idx
 
 
 # ==========================================================
@@ -260,282 +194,228 @@ def _enter_fixup(robot, hitch, lookahead_target, min_dist, max_dist):
     """
     Compute a forward fixup waypoint and enter fixup mode.
 
-    The waypoint is placed opposite the direction toward the lookahead
-    target, so driving forward to it naturally reduces hitch angle and
+    The waypoint is placed in the direction opposite the lookahead target
+    so that driving forward naturally unwinds the hitch angle and
     reorients the system for the next reverse attempt.
-
-    Fixup distance is scaled by hitch severity — larger hitch angles
-    use a shorter, more conservative maneuver.
+    Fixup distance shrinks for larger hitch angles to avoid over-committing.
     """
     to_x = lookahead_target[0] - robot.x
     to_y = lookahead_target[1] - robot.y
     dist = np.hypot(to_x, to_y)
 
     if dist > 1e-6:
-        dx = -to_x / dist
-        dy = -to_y / dist
+        dx, dy = -to_x/dist, -to_y/dist
     else:
-        dx = np.cos(robot.theta)
-        dy = np.sin(robot.theta)
+        dx, dy = np.cos(robot.theta), np.sin(robot.theta)
 
-    # Larger hitch → shorter fixup (avoid over-committing)
     hitch_ratio = np.clip(abs(hitch) / np.deg2rad(90), 0.0, 1.0)
     fix_dist    = max_dist - hitch_ratio * (max_dist - min_dist)
 
-    robot.recovery_target        = (robot.x + fix_dist * dx,
-                                    robot.y + fix_dist * dy)
-    robot.debug_recovery_target  = robot.recovery_target
-    robot.control_mode           = "fixup"
-
-    # Reset frustration timer so we don't immediately re-enter fixup
+    robot.recovery_target       = (robot.x + fix_dist*dx,
+                                   robot.y + fix_dist*dy)
+    robot.debug_recovery_target = robot.recovery_target
+    robot.control_mode          = "fixup"
     robot.fixup_frustration_timer = 0.0
 
 
 def _execute_fixup(robot, hitch, max_omega, fixup_speed):
     """
-    Execute the fixup maneuver: drive forward toward the fixup waypoint.
-
-    Exits when either:
-      1. Close enough to the waypoint (distance-based)
-      2. Hitch angle has recovered sufficiently (angle-based)
+    Drive forward toward the fixup waypoint.
+    Exits when close enough OR when hitch angle has recovered.
     """
     tx, ty = robot.recovery_target
+    dx, dy = tx - robot.x, ty - robot.y
+    dist   = np.hypot(dx, dy)
 
-    dx   = tx - robot.x
-    dy   = ty - robot.y
-    dist = np.hypot(dx, dy)
-
-    reached  = dist < 0.04
-    hitch_ok = abs(hitch) < np.deg2rad(20)
-
-    if reached or hitch_ok:
-        robot.control_mode           = "normal"
-        robot.recovery_target        = None
-        robot.debug_recovery_target  = None
+    if dist < 0.04 or abs(hitch) < np.deg2rad(20):
+        robot.control_mode          = "normal"
+        robot.recovery_target       = None
+        robot.debug_recovery_target = None
         robot.fixup_frustration_timer = 0.0
-        robot.fixup_post_cooldown    = 1.5   # brief cooldown before re-triggering
+        robot.fixup_post_cooldown   = 1.5
         robot.debug_info = {
             "mode": "FIXUP→NORMAL",
             "hitch": hitch, "v": 0.0, "omega": 0.0,
             "local_y": 0.0, "curvature": 0.0,
             "phi_des": 0.0, "phi_err": 0.0,
             "frustration": 0.0,
+            "limit_curvature": robot._limit_curvature,
         }
         return 0.0, 0.0
 
-    desired_heading = np.arctan2(dy, dx)
-    heading_error   = desired_heading - robot.theta
-    heading_error   = np.arctan2(np.sin(heading_error), np.cos(heading_error))
-
-    v     = fixup_speed
-    omega = 3.0 * heading_error
+    err   = np.arctan2(np.sin(np.arctan2(dy, dx) - robot.theta),
+                       np.cos(np.arctan2(dy, dx) - robot.theta))
+    omega = 3.0 * err
 
     robot.debug_info = {
         "mode": "FIXUP",
-        "hitch": hitch, "v": v, "omega": omega,
+        "hitch": hitch, "v": fixup_speed, "omega": omega,
         "local_y": dist, "curvature": 0.0,
         "phi_des": 0.0, "phi_err": hitch,
         "frustration": 0.0,
+        "limit_curvature": robot._limit_curvature,
     }
-    return v, np.clip(omega, -max_omega, max_omega)
+    return fixup_speed, np.clip(omega, -max_omega, max_omega)
 
 
 # ==========================================================
 # TRAILER CONTROLLER
 # ==========================================================
 
-def trailer_controller(path, lookahead, robot, speed, dt=0.05):
+def trailer_controller(path, lookahead, robot, speed, dt=0.05,
+                       limit_curvature=True):
     """
-    Cascaded trailer controller with timeout-based fixup maneuver system.
+    Cascaded trailer controller.
 
-    ── State machine ──────────────────────────────────────────────────────
-    "normal"   Standard path tracking (forward or reverse)
-    "fixup"    Forward repositioning maneuver to escape tight corner
+    Parameters
+    ----------
+    path            : list of (x, y) waypoints
+    lookahead       : pure-pursuit lookahead radius (m)
+    robot           : Robot instance
+    speed           : signed speed (m/s) — negative = reverse
+    dt              : timestep (s)
+    limit_curvature : if True, caps arcsin argument at ±0.9 (~64° hitch,
+                      effective r_min ≈ 0.11 m).  If False, only a hard
+                      NaN guard (±0.999) is applied.
 
-    ── Forward mode ───────────────────────────────────────────────────────
-    Trailer-aware pure pursuit. Blends standard curvature tracking with a
-    hitch-angle correction that activates as hitch builds up, preventing
-    the trailer from folding into a dangerous angle mid-corner.
+    Forward mode
+    ------------
+    Trailer-aware blended pure pursuit.  Pure pursuit dominates when the
+    hitch angle is small; a hitch-correction term blends in as it grows,
+    preventing the trailer folding into a dangerous angle mid-corner.
 
-    ── Reverse mode ───────────────────────────────────────────────────────
+    Reverse mode
+    ------------
     Cascaded hitch-angle controller:
-      Outer: path curvature → desired hitch angle  (kinematic inversion)
-      Inner: PD on hitch error → robot ω
+      Outer loop: path curvature κ → desired hitch angle φ_des
+                  via kinematic inversion  sin(φ) = L · κ
+      Inner loop: PD on hitch error → robot ω
 
-    ── Fixup trigger (reverse only) ───────────────────────────────────────
-    A fixup is triggered only when ALL THREE conditions hold simultaneously:
-
-      1. HEADING ERROR large  — |local_y| > HEADING_ERR_THRESHOLD
-             The trailer is significantly off the path laterally.
-
-      2. DISTANCE ERROR small — distance from control point to nearest
-             path point < DIST_ERR_THRESHOLD
-             The robot IS near the path, so the error is genuinely a
-             heading problem, not just a long-range approach.
-
-      3. SATURATED TIMEOUT    — the controller has been outputting max
-             omega (saturated) continuously for ≥ FRUSTRATION_TIMEOUT s
-             This proves the controller has genuinely tried and failed
-             to fix the heading — it's not just a transient.
-
-    A post-fixup cooldown (fixup_post_cooldown) prevents immediate
-    re-entry after a fixup completes.
-
-    Hard jackknife (|hitch| > HITCH_JACKKNIFE) triggers immediately,
-    bypassing the timeout, because that state is physically dangerous.
+    Fixup trigger (reverse only, described as a recommended extension)
+    ------------------------------------------------------------------
+    Fires when ALL THREE conditions hold simultaneously for ≥ FRUSTRATION_TIMEOUT s:
+      1. |local_y| > HEADING_ERR_THRESHOLD   (large lateral error)
+      2. dist_to_path < DIST_ERR_THRESHOLD    (near the path — not just approaching)
+      3. |ω_raw| ≥ OMEGA_SAT_FRACTION × max_ω (controller saturated)
+    Hard jackknife (|hitch| > 65°) fires immediately without the timeout.
     """
 
-    # ==========================
-    # PARAMETERS
-    # ==========================
-    L = robot.trailer_length
+    robot._limit_curvature = limit_curvature
 
-    # Forward gains (trailer-aware blend)
+    # ── Gains ──────────────────────────────────────────────
+    L           = robot.trailer_length
     k_fwd_path  = 1.8
     k_fwd_phi   = 1.5
     k_fwd_damp  = 1.2
-
-    # Reverse gains (cascaded hitch controller)
     k_rev_phi   = 2.5
     k_rev_damp  = 2.5
+    max_omega   = 3.0
 
-    max_omega   = 3.0   # rad/s — also used as saturation reference
+    # ── Fixup parameters ───────────────────────────────────
+    HITCH_JACKKNIFE       = np.deg2rad(65)
+    HEADING_ERR_THRESHOLD = 0.15
+    DIST_ERR_THRESHOLD    = 0.60
+    OMEGA_SAT_FRACTION    = 0.80
+    FRUSTRATION_TIMEOUT   = 0.2
+    FIXUP_SPEED           = 0.18
+    FIXUP_MIN_DIST        = 0.12
+    FIXUP_MAX_DIST        = 0.28
 
-    # Hard jackknife limit — immediate fixup, no timeout
-    HITCH_JACKKNIFE = np.deg2rad(65)
-
-    # Timeout-based fixup trigger thresholds
-    HEADING_ERR_THRESHOLD = 0.15   # local_y (m) — significant lateral error
-    DIST_ERR_THRESHOLD    = 0.60    # m — control point close to path
-    OMEGA_SAT_FRACTION    = 0.80    # fraction of max_omega to count as "saturated"
-    FRUSTRATION_TIMEOUT   = 0.2     # seconds to persist before fixup fires
-
-    # Post-fixup cooldown (s) before frustration timer can build again
-    FIXUP_POST_COOLDOWN   = 1.5
-
-    # Fixup maneuver geometry
-    FIXUP_SPEED     = 0.18
-    FIXUP_MIN_DIST  = 0.12
-    FIXUP_MAX_DIST  = 0.28
+    arcsin_clip = 0.9 if limit_curvature else 0.999
 
     hitch = robot.get_hitch_angle()
 
-    # Decay post-fixup cooldown each call
     if robot.fixup_post_cooldown > 0.0:
         robot.fixup_post_cooldown = max(0.0, robot.fixup_post_cooldown - dt)
 
-    # ==========================
-    # FIXUP MODE
-    # ==========================
+    # ── Fixup execution ────────────────────────────────────
     if robot.control_mode == "fixup":
         return _execute_fixup(robot, hitch, max_omega, FIXUP_SPEED)
 
-    # ==========================
-    # CONTROL POINT SELECTION
-    # ==========================
+    # ── Control point ──────────────────────────────────────
     if speed >= 0:
-        cx, cy = robot.x, robot.y
-        theta  = robot.theta
+        cx, cy, theta = robot.x, robot.y, robot.theta
     else:
-        cx, cy = robot.get_trailer_position()
-        theta  = robot.get_trailer_heading()
+        (cx, cy), theta = robot.get_trailer_position(), robot.get_trailer_heading()
 
-    # ==========================
-    # LOOKAHEAD
-    # ==========================
+    # ── Lookahead ──────────────────────────────────────────
     target, robot.path_index = _find_lookahead(
         path, cx, cy, lookahead, robot.path_index
     )
     robot.debug_lookahead = target
 
-    # ==========================
-    # LOCAL FRAME
-    # ==========================
-    dx = target[0] - cx
-    dy = target[1] - cy
+    # ── Local frame ────────────────────────────────────────
+    dx, dy  = target[0] - cx, target[1] - cy
+    local_x =  np.cos(theta)*dx + np.sin(theta)*dy
+    local_y = -np.sin(theta)*dx + np.cos(theta)*dy
+    local_x = max(local_x, 1e-3)   # prevent donut-causing sign flip
 
-    local_x =  np.cos(theta) * dx + np.sin(theta) * dy
-    local_y = -np.sin(theta) * dx + np.cos(theta) * dy
-
-    # Prevent donut-causing sign flip when target drifts behind control point
-    local_x = max(local_x, 1e-3)
-
-    # ==========================
-    # PURE PURSUIT CURVATURE  κ = 2y / Ld²
-    # ==========================
     kappa = 2.0 * local_y / (lookahead ** 2)
+    v     = speed
 
-    # Desired hitch angle from kinematic inversion: sin(φ) = L · κ_path
-    arg_rev = np.clip(L * kappa * k_rev_phi / k_rev_phi, -0.9, 0.9)  # placeholder, computed properly below
-    arg     = np.clip(L * kappa * k_fwd_path, -0.9, 0.9)
-    phi_des = np.arcsin(arg)
-    phi_err = phi_des - hitch
-
-    v = speed
-
-    # ==========================
-    # REVERSE: COMPUTE OMEGA CANDIDATE
-    # (needed to check saturation before deciding to trigger fixup)
-    # ==========================
+    # ── Reverse ────────────────────────────────────────────
     if speed < 0:
-        omega_rev = k_rev_phi * phi_err - k_rev_damp * hitch
+        # Pure kinematic inversion — gain belongs in omega step, not arcsin
+        arg_rev = np.clip(L * kappa, -arcsin_clip, arcsin_clip)
+        phi_des = np.arcsin(arg_rev)
+        phi_err = phi_des - hitch
+
+        omega_rev         = k_rev_phi * phi_err - k_rev_damp * hitch
         omega_rev_clipped = np.clip(omega_rev, -max_omega, max_omega)
-        is_saturated = abs(omega_rev) >= OMEGA_SAT_FRACTION * max_omega
+        is_saturated      = abs(omega_rev) >= OMEGA_SAT_FRACTION * max_omega
 
-        # Distance from control point to nearest path point
-        dists_to_path = [np.hypot(px - cx, py - cy) for px, py in path]
-        dist_to_path  = min(dists_to_path)
+        # Local window dist check (O(1) vs O(n))
+        window       = range(max(0, robot.path_index - 20),
+                             min(len(path), robot.path_index + 20))
+        dist_to_path = min(np.hypot(path[j][0]-cx, path[j][1]-cy) for j in window)
 
-        # Check all three frustration conditions
-        heading_err_large = abs(local_y) > HEADING_ERR_THRESHOLD
-        dist_err_small    = dist_to_path < DIST_ERR_THRESHOLD
-        frustrated        = heading_err_large and dist_err_small and is_saturated
+        frustrated = (abs(local_y) > HEADING_ERR_THRESHOLD and
+                      dist_to_path  < DIST_ERR_THRESHOLD    and
+                      is_saturated)
 
         if frustrated and robot.fixup_post_cooldown <= 0.0:
             robot.fixup_frustration_timer += dt
         else:
-            # Any condition not met → reset timer
             robot.fixup_frustration_timer = max(
                 0.0, robot.fixup_frustration_timer - dt * 2.0
             )
 
-        # Hard jackknife — immediate, no timeout required
         hard_jackknife = abs(hitch) > HITCH_JACKKNIFE
+        timed_out      = (robot.fixup_frustration_timer >= FRUSTRATION_TIMEOUT
+                          and robot.fixup_post_cooldown <= 0.0)
 
-        if hard_jackknife or (robot.fixup_frustration_timer >= FRUSTRATION_TIMEOUT
-                               and robot.fixup_post_cooldown <= 0.0):
+        if hard_jackknife or timed_out:
             _enter_fixup(robot, hitch, target, FIXUP_MIN_DIST, FIXUP_MAX_DIST)
             robot.debug_info = {
-                "mode": "ENTERING FIXUP" + (" (JACKKNIFE)" if hard_jackknife else " (TIMEOUT)"),
+                "mode": "→FIXUP" + (" (JACKKNIFE)" if hard_jackknife else " (TIMEOUT)"),
                 "hitch": hitch, "v": 0.0, "omega": 0.0,
                 "local_y": local_y, "curvature": kappa,
                 "phi_des": phi_des, "phi_err": phi_err,
                 "frustration": robot.fixup_frustration_timer,
+                "limit_curvature": limit_curvature,
             }
             return 0.0, 0.0
 
-        # Normal reverse control
         robot.debug_info = {
-            "mode": f"REVERSE (frust {robot.fixup_frustration_timer:.1f}s)",
+            "mode": f"REVERSE  frust={robot.fixup_frustration_timer:.1f}s",
             "hitch": hitch, "v": v, "omega": omega_rev_clipped,
             "local_y": local_y, "curvature": kappa,
             "phi_des": phi_des, "phi_err": phi_err,
             "frustration": robot.fixup_frustration_timer,
+            "limit_curvature": limit_curvature,
         }
         return v, omega_rev_clipped
 
-    # ==========================
-    # FORWARD — trailer-aware blended controller
-    # ==========================
-    # Pure pursuit drives path tracking; hitch correction blends in as
-    # the trailer angle builds up, keeping it from folding in corners.
+    # ── Forward ────────────────────────────────────────────
+    arg_fwd = np.clip(L * kappa * k_fwd_path, -arcsin_clip, arcsin_clip)
+    phi_des = np.arcsin(arg_fwd)
+    phi_err = phi_des - hitch
+
     omega_pp    = v * kappa * k_fwd_path
     omega_hitch = k_fwd_phi * phi_err - k_fwd_damp * hitch
+    blend       = np.clip(abs(hitch) / np.deg2rad(30), 0.0, 1.0)
+    omega       = (1.0 - blend) * omega_pp + blend * omega_hitch
 
-    blend = np.clip(abs(hitch) / np.deg2rad(30), 0.0, 1.0)
-    omega = (1.0 - blend) * omega_pp + blend * omega_hitch
-
-    # Reset frustration when not reversing
     robot.fixup_frustration_timer = 0.0
 
     robot.debug_info = {
@@ -544,57 +424,6 @@ def trailer_controller(path, lookahead, robot, speed, dt=0.05):
         "local_y": local_y, "curvature": kappa,
         "phi_des": phi_des, "phi_err": phi_err,
         "frustration": 0.0,
+        "limit_curvature": limit_curvature,
     }
     return v, np.clip(omega, -max_omega, max_omega)
-
-
-# ==========================================================
-# MAIN
-# ==========================================================
-
-def main():
-    path = trailer_path_planner(mode="triangle")
-
-    dt    = 0.05
-    speed = -0.2   # negative = reverse (trailer leads)
-
-    x0, y0 = path[0]
-    x1, y1 = path[1]
-
-    # Align robot to the first path segment.
-    # In reverse the robot drives backward (trailer leads), so theta
-    # points opposite the path direction — robot faces away from path[1].
-    path_heading = math.atan2(y1 - y0, x1 - x0)
-    theta0 = path_heading + (math.pi if speed < 0 else 0.0)
-
-    trailer_length = 0.1
-
-    if speed < 0:
-        # Control point is the trailer, which sits trailer_length behind
-        # the robot center. Offset the robot forward so the trailer starts
-        # exactly on path[0], eliminating initial tracking error.
-        x0 = x0 + trailer_length * math.cos(theta0)
-        y0 = y0 + trailer_length * math.sin(theta0)
-
-    robot = Robot(
-        mode="sim",
-        x0=x0, y0=y0,
-        theta0=theta0,
-        has_trailer=True,
-        trailer_length=trailer_length,
-    )
-
-    sim = Sim([robot], bounds=[[0, 0], [2, 2]], path=path)
-
-    while True:
-        robot.update(dt=dt)
-
-        v, w = trailer_controller(path, lookahead=0.1, robot=robot, speed=speed, dt=dt)
-        robot.set_velocity(v, w)
-
-        sim.update()
-        time.sleep(dt)
-
-
-if __name__ == "__main__":
-    main()
